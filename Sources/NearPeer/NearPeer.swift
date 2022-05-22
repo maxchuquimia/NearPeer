@@ -10,8 +10,13 @@ import MultipeerConnectivity
 
 public final class NearPeer: NSObject {
 
+    /// A delegate that handles `NearPeer` events
     public weak var delegate: NearPeerDelegate?
+
+    /// The identifier of this instance (as passed into `init`)
     public let localID: ID
+
+    /// The current state of this instance
     public private(set) var state: State = .idle {
         didSet { stateDidChange(from: oldValue) }
     }
@@ -33,7 +38,7 @@ public final class NearPeer: NSObject {
     /// - Parameters:
     ///   - serviceType: A short, unique-for-your-app string that identifies the local network.
     ///   - id: A short identifier for the current device
-    required init(serviceType: String, id: NearPeer.ID = NearPeer.ID()) {
+    public required init(serviceType: String, id: NearPeer.ID = NearPeer.ID()) {
         self.localID = id
         self.serviceType = serviceType
         peer = MCPeerID(displayName: id.id)
@@ -57,12 +62,17 @@ public final class NearPeer: NSObject {
 
 public extension NearPeer {
 
+    /// Start searching for nearby `NearPeer` instances and connect to them
     func joinPeers() {
         guard state == .idle else { return }
         searchForActiveSessions()
     }
 
+    /// Stop searching for nearby `NearPeer` instances and disconnect from any connected peers
     func stop() {
+        if !session.connectedPeers.isEmpty {
+            delegate?.connectedPeersDidChange(to: [])
+        }
         nextStateChangeTimer?.invalidate()
         session.disconnect()
         advertiser?.stopAdvertisingPeer()
@@ -70,6 +80,8 @@ public extension NearPeer {
         state = .idle
     }
 
+    /// Broadcast a message to all connected peers
+    /// - Parameter data: the message to send
     func broadcast(data: Data) {
         guard !session.connectedPeers.isEmpty else { return }
         do {
@@ -95,7 +107,7 @@ private extension NearPeer {
         sessionHandler.receivedDataHandler = { [weak self] in self?.handle(data: $0, from: $1) }
     }
 
-    func _stopAdvertising() {
+    func stopAdvertising() {
         guard advertiser != nil else { return }
         advertiser?.delegate = nil
         advertiser?.stopAdvertisingPeer()
@@ -103,65 +115,63 @@ private extension NearPeer {
     }
 
     func _startAdvertising() {
-        _stopAdvertising()
+        stopAdvertising()
         advertiser = MCNearbyServiceAdvertiser(peer: peer, discoveryInfo: nil, serviceType: serviceType)
         advertiser?.delegate = advertiserHandler
         advertiser?.startAdvertisingPeer()
     }
 
-    func _stopBrowsing() {
+    func stopBrowsing() {
         guard browser != nil else { return }
         browser?.delegate = nil
         browser?.stopBrowsingForPeers()
         browser = nil
     }
 
-    func _startBrowsing() {
-        _stopBrowsing()
+    func startBrowsing() {
+        stopBrowsing()
         browser = MCNearbyServiceBrowser(peer: peer, serviceType: serviceType)
         browser?.delegate = browserHandler
         browser?.startBrowsingForPeers()
     }
 
     func searchForActiveSessions() {
-        _stopAdvertising()
-        DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(1)) { [self] in
-            state = .searchingForActiveSessions
+        stopAdvertising()
+        refreshDebouncer = .dispatchAfter(1.0) { [weak self] in
+            self?.state = .searchingForActiveSessions
 
-            browserHandler.willInvitePeerToSessionHandler = { [weak self] in
+            self?.browserHandler.willInvitePeerToSessionHandler = { [weak self] in
                 self?.nextStateChangeTimer?.invalidate()
                 self?.state = .connectedToExistingSession
             }
 
-            _startBrowsing()
+            self?.startBrowsing()
 
-            nextStateChangeTimer?.invalidate()
-            nextStateChangeTimer = .scheduledTimer(withTimeInterval: NearPeerConstants.searchDuration(), repeats: false, block: { [weak self] _ in
+            self?.nextStateChangeTimer?.invalidate()
+            self?.nextStateChangeTimer = .dispatchAfter(NearPeerConstants.searchDuration()) { [weak self] in
                 // Failed to find an existing session in time, so create a new session
                 self?.broadcastNewSession()
-            })
-            nextStateChangeTimer?.tolerance = 1.0
+            }
         }
     }
 
     func broadcastNewSession() {
-        _stopBrowsing()
-        DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(1)) { [self] in
-            state = .broadcastingNewSession
+        stopBrowsing()
+        refreshDebouncer = .dispatchAfter(1.0) { [weak self] in
+            self?.state = .broadcastingNewSession
 
-            advertiserHandler.willAcceptPeerInvitationHandler = { [weak self] in
+            self?.advertiserHandler.willAcceptPeerInvitationHandler = { [weak self] in
                 self?.nextStateChangeTimer?.invalidate()
                 self?.state = .hostingSession
             }
 
-            _startAdvertising()
+            self?._startAdvertising()
 
-            nextStateChangeTimer?.invalidate()
-            nextStateChangeTimer = .scheduledTimer(withTimeInterval: NearPeerConstants.advertisingDuration(), repeats: false, block: { [weak self] _ in
+            self?.nextStateChangeTimer?.invalidate()
+            self?.nextStateChangeTimer = .dispatchAfter(NearPeerConstants.advertisingDuration()) { [weak self] in
                 // Failed to find an existing session in time, so create a new session
                 self?.searchForActiveSessions()
-            })
-            nextStateChangeTimer?.tolerance = 1.0
+            }
         }
     }
 
@@ -170,14 +180,15 @@ private extension NearPeer {
         guard session.connectedPeers.isEmpty else { return NearPeerConstants.logger("No need to refresh, found \(session.connectedPeers)") }
         NearPeerConstants.logger("Scheduling refresh")
         // If session.connectedPeers.isEmpty is empty, schedule a refresh
-        refreshDebouncer = .scheduledTimer(withTimeInterval: 3.0, repeats: false, block: { [weak self] _ in
+        refreshDebouncer = .dispatchAfter(3.0) { [weak self] in
             self?.doRefresh()
-        })
-        refreshDebouncer?.tolerance = 1.0
+        }
     }
 
     func stateDidChange(from oldValue: State) {
         NearPeerConstants.logger("State changed: \(oldValue) -> \(state)")
+        guard oldValue != state else { return }
+        delegate?.stateDidChange(from: oldValue, to: state)
     }
 
     func handle(error: Error) {

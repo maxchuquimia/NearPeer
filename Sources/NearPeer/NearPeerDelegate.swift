@@ -16,4 +16,13 @@ public protocol NearPeerDelegate: AnyObject {
 
     /// Called when an error occurs (typically from the `MultipeerConnectivity` framework)
     func handle(error: Error)
+
+    /// Called when the state changes
+    func stateDidChange(from oldValue: NearPeer.State, to newState: NearPeer.State)
+}
+
+public extension NearPeerDelegate {
+
+    func stateDidChange(from oldValue: NearPeer.State, to newState: NearPeer.State) {}
+
 }
