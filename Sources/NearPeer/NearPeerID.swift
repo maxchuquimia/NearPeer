@@ -11,22 +11,24 @@ import MultipeerConnectivity
 public extension NearPeer {
 
     struct ID: Hashable {
-        let id: String
 
-        init() {
+        public let id: String
+
+        public init() {
             let _id = UUID()
                 .uuidString
                 .replacingOccurrences(of: "-", with: "")
             id = String(_id[_id.startIndex..<_id.index(_id.startIndex, offsetBy: 15)])
         }
 
-        init(id: String) {
+        public init(id: String) {
             self.id = id
         }
 
-        init(peerID: MCPeerID) {
+        public init(peerID: MCPeerID) {
             self.id = peerID.displayName
         }
+
     }
 
 }
