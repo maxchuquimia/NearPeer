@@ -63,6 +63,9 @@ public extension NearPeer {
     }
 
     func stop() {
+        if !session.connectedPeers.isEmpty {
+            delegate?.connectedPeersDidChange(to: [])
+        }
         nextStateChangeTimer?.invalidate()
         session.disconnect()
         advertiser?.stopAdvertisingPeer()

@@ -21,7 +21,7 @@ public enum NearPeerConstants {
     /// The duration for which NearPeer should remain in the `searchingForActiveSessions`
     /// state as it searches for nearby devices to connect to.
     public static var searchDuration: () -> TimeInterval = {
-        connectionTimeout * 2
+        connectionTimeout * 1.5
     }
 
     /// A logger to which debug messages should be written.
