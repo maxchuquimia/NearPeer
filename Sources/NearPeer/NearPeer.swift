@@ -178,6 +178,8 @@ private extension NearPeer {
 
     func stateDidChange(from oldValue: State) {
         NearPeerConstants.logger("State changed: \(oldValue) -> \(state)")
+        guard oldValue != state else { return }
+        delegate?.stateDidChange(from: oldValue, to: state)
     }
 
     func handle(error: Error) {
